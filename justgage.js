@@ -3,6 +3,9 @@
  * Check http://www.justgage.com for official releases
  * Licensed under MIT.
  * @author Bojan Djuricic (@Toorshia)
+ * 21 Dec. 2015 - B. Taylor added tol - a canvas custom attribute for drawing
+ * out of tolerance limits, and edited the pki attribute for drawing from zero
+ * instead of left 
  **/
 
 JustGage = function(config) {
@@ -73,21 +76,10 @@ JustGage = function(config) {
     // color of gauge title
     titleFontColor: kvLookup('titleFontColor', config, dataset, "#999999"),
 
-    // titleFontFamily : string
-    // color of gauge title
-    titleFontFamily: kvLookup('titleFontFamily', config, dataset, "sans-serif"),
-
-    // titlePosition : string
-    // 'above' or 'below'
-    titlePosition: kvLookup('titlePosition', config, dataset, "above"),
 
     // valueFontColor : string
     // color of label showing current value
     valueFontColor: kvLookup('valueFontColor', config, dataset, "#010101"),
-
-    // valueFontFamily : string
-    // color of label showing current value
-    valueFontFamily: kvLookup('valueFontFamily', config, dataset, "Arial"),
 
     // symbol : string
     // special symbol to show next to value
@@ -97,17 +89,9 @@ JustGage = function(config) {
     // min value
     min: kvLookup('min', config, dataset, 0, 'float'),
 
-    // minTxt : string
-    // min value text
-    minTxt: kvLookup('minTxt', config, dataset, false),
-
     // max : float
     // max value
     max: kvLookup('max', config, dataset, 100, 'float'),
-
-    // maxTxt : string
-    // max value text
-    maxTxt: kvLookup('maxTxt', config, dataset, false),
 
     // reverse : bool
     // reverse min and max
@@ -121,10 +105,6 @@ JustGage = function(config) {
     // textRenderer: func
     // function applied before rendering text
     textRenderer: kvLookup('textRenderer', config, dataset, null),
-
-    // onAnimationEnd: func
-    // function applied after animation is done
-    onAnimationEnd: kvLookup('onAnimationEnd', config, dataset, null),
 
     // gaugeWidthScale : float
     // width of the gauge element
@@ -248,7 +228,11 @@ JustGage = function(config) {
 
     // pointerOptions : object
     // define pointer look
-    pointerOptions: kvLookup('pointerOptions', config, dataset, [])
+    pointerOptions: kvLookup('pointerOptions', config, dataset, []),
+	
+    // tolerance : float
+	// out-of-tolerance interval
+	tolerance: kvLookup('tolerance', config, dataset, 0.2)
   };
 
   // variables
@@ -291,6 +275,7 @@ JustGage = function(config) {
   if (obj.config.relativeGaugeSize === true) {
     obj.canvas.setViewBox(0, 0, 200, 150, true);
   }
+
 
   // canvas dimensions
   if (obj.config.relativeGaugeSize === true) {
@@ -398,15 +383,11 @@ JustGage = function(config) {
     // delta
     dx = (canvasW - widgetW) / 2;
     dy = (canvasH - widgetH) / 2;
-    if (obj.config.titlePosition === 'below') {
-      // shift whole thing down
-      dy -= (widgetH / 6.4);
-    }
 
     // title
     titleFontSize = ((widgetH / 8) > obj.config.titleMinFontSize) ? (widgetH / 10) : obj.config.titleMinFontSize;
     titleX = dx + widgetW / 2;
-    titleY = dy + (obj.config.titlePosition === 'below' ? (widgetH * 1.07) : (widgetH / 6.4));
+    titleY = dy + widgetH / 6.4;
 
     // value
     valueFontSize = ((widgetH / 6.5) > obj.config.valueMinFontSize) ? (widgetH / 6.5) : obj.config.valueMinFontSize;
@@ -457,8 +438,41 @@ JustGage = function(config) {
   // var clear
   canvasW, canvasH, widgetW, widgetH, aspect, dx, dy, titleFontSize, titleX, titleY, valueFontSize, valueX, valueY, labelFontSize, labelX, labelY, minFontSize, minX, minY, maxFontSize, maxX, maxY = null;
 
-  // pki - custom attribute for generating gauge paths
+  // pki - custom attribute for generating gauge level paths starting from zero
   obj.canvas.customAttributes.pki = function(value, min, max, w, h, dx, dy, gws, donut, reverse) {
+
+    var alpha, Ro, Ri, Cx, Cy, Xo, Yo, Xi, Yi, path;
+	  var sweep1 = 0,
+		  sweep2 = 1;
+	  if (value > 0)
+		  sweep1 = 1,
+	  	  sweep2 = 0;
+      alpha = (1 - (value - min) / (max - min)) * Math.PI;
+      Ro = w / 2 - w / 10;
+      Ri = Ro - w / 6.666666666666667 * gws;
+
+      Cx = w / 2 + dx;
+      Cy = h / 1.25 + dy;
+
+      Xo = w / 2 + dx + Ro * Math.cos(alpha);
+      Yo = h - (h - Cy) - Ro * Math.sin(alpha);
+      Xi = w / 2 + dx + Ri * Math.cos(alpha);
+      Yi = h - (h - Cy) - Ri * Math.sin(alpha);
+
+      path = "M" + Cx + "," + (Cy - Ri) + " ";
+      path += "L" + Cx + "," + (Cy - Ro) + " ";
+      path += "A" + Ro + "," + Ro + " 0 0 " + sweep1 + " " + Xo + "," + Yo + " ";
+      path += "L" + Xi + "," + Yi + " ";
+      path += "A" + Ri + "," + Ri + " 0 0 " + sweep2 + " " + Cx + "," + (Cy - Ri) + " ";
+      path += "Z ";
+
+      return {
+        path: path
+      };
+    }
+
+  // normalpki - custom attribute for generating gauge paths
+  obj.canvas.customAttributes.normalpki = function(value, min, max, w, h, dx, dy, gws, donut, reverse) {
 
     var alpha, Ro, Ri, Cx, Cy, Xo, Yo, Xi, Yi, path;
 
@@ -535,38 +549,9 @@ JustGage = function(config) {
     var alpha, Ro, Ri, Cx, Cy, Xo, Yo, Xi, Yi, Xc, Yc, Xz, Yz, Xa, Ya, Xb, Yb, path;
 
     if (donut) {
-
-      alpha = (1 - 2 * (value - min) / (max - min)) * Math.PI;
-      Ro = w / 2 - w / 7;
-      Ri = Ro - w / 6.666666666666667 * gws;
-
-      Cx = w / 2 + dx;
-      Cy = h / 1.95 + dy;
-
-      Xo = w / 2 + dx + Ro * Math.cos(alpha);
-      Yo = h - (h - Cy) - Ro * Math.sin(alpha);
-      Xi = w / 2 + dx + Ri * Math.cos(alpha);
-      Yi = h - (h - Cy) - Ri * Math.sin(alpha);
-
-      Xc = Xo + dlt * Math.cos(alpha);
-      Yc = Yo - dlt * Math.sin(alpha);
-      Xz = Xi - dlb * Math.cos(alpha);
-      Yz = Yi + dlb * Math.sin(alpha);
-
-      Xa = Xz + dw * Math.sin(alpha);
-      Ya = Yz + dw * Math.cos(alpha);
-      Xb = Xz - dw * Math.sin(alpha);
-      Yb = Yz - dw * Math.cos(alpha);
-
-      path = 'M' + Xa + ',' + Ya + ' ';
-      path += 'L' + Xb + ',' + Yb + ' ';
-      path += 'L' + Xc + ',' + Yc + ' ';
-      path += 'Z ';
-
       return {
-        path: path
+        path: null
       };
-
     } else {
       alpha = (1 - (value - min) / (max - min)) * Math.PI;
       Ro = w / 2 - w / 10;
@@ -599,16 +584,50 @@ JustGage = function(config) {
         path: path
       };
     }
-
     // var clear
     alpha, Ro, Ri, Cx, Cy, Xo, Yo, Xi, Yi, Xc, Yc, Xz, Yz, Xa, Ya, Xb, Yb, path = null;
   };
+  
+  // tol - custom attribute for drawing tolerance lines  
+  obj.canvas.customAttributes.tol = function (tolerance, min, max, w, h, dx, dy, gws) {
+      
+   	  var alphaLo, alphaHi, Ro, Ri, Cx, Cy, loXo, loYo, loXi, loYi, hiXo, hiYo, hiXi, hiYo, path;
+
+	  Ro = w / 2 - w / 10,
+      Ri = Ro - w / 6.666666666666667 * gws,
+          
+      Cx = w / 2 + dx,
+      Cy = h / 1.25 + dy,
+          
+      alphaLo = (1 - (-tolerance - min) / (max - min)) * Math.PI,
+      alphaHi = (1 - (tolerance - min) / (max - min)) * Math.PI,
+          
+	  loXo = w / 2 + dx + Ro * Math.cos(alphaLo),
+      loYo = h - (h - Cy) + dy - Ro * Math.sin(alphaLo),
+      loXi = w / 2 + dx + Ri * Math.cos(alphaLo),
+      loYi = h - (h - Cy) + dy - Ri * Math.sin(alphaLo),
+      hiXo = w / 2 + dx + Ro * Math.cos(alphaHi),
+      hiYo = h - (h - Cy) + dy - Ro * Math.sin(alphaHi),
+      hiXi = w / 2 + dx + Ri * Math.cos(alphaHi),
+      hiYi = h - (h - Cy) + dy - Ri * Math.sin(alphaHi),
+
+      path += "M" + loXo + "," +  loYo + " ",  
+      path += "L" + loXi + "," +  loYi + " ", 
+      path += "Z ";
+      path += "M" + hiXo + "," +  hiYo + " ",  
+      path += "L" + hiXi + "," +  hiYi + " ", 
+      path += "Z ";
+      return { 	
+		path: path 
+	  };
+  };
+
 
   // gauge
   obj.gauge = obj.canvas.path().attr({
     "stroke": "none",
     "fill": obj.config.gaugeColor,
-    pki: [
+    normalpki: [
       obj.config.max,
       obj.config.min,
       obj.config.max,
@@ -639,6 +658,24 @@ JustGage = function(config) {
       obj.config.reverse
     ]
   });
+
+  // tolerance lines 
+
+  obj.tolerance = obj.canvas.path().attr({
+    "stroke" : "red",
+	"stroke-width":"2px",
+     tol: [
+		obj.config.tolerance,
+		obj.config.min, 
+		obj.config.max, 
+		obj.params.widgetW, 
+		obj.params.widgetH,  
+		obj.params.dx, 
+		obj.params.dy, 
+		obj.config.gaugeWidthScale
+	]
+  });
+
   if (obj.config.donut) {
     obj.level.transform("r" + obj.config.donutStartAngle + ", " + (obj.params.widgetW / 2 + obj.params.dx) + ", " + (obj.params.widgetH / 1.95 + obj.params.dy));
   }
@@ -662,11 +699,6 @@ JustGage = function(config) {
         obj.config.donut
       ]
     });
-
-    if (obj.config.donut) {
-      obj.needle.transform("r" + obj.config.donutStartAngle + ", " + (obj.params.widgetW / 2 + obj.params.dx) + ", " + (obj.params.widgetH / 1.95 + obj.params.dy));
-    }
-
   }
 
   // title
@@ -674,7 +706,7 @@ JustGage = function(config) {
   obj.txtTitle.attr({
     "font-size": obj.params.titleFontSize,
     "font-weight": "bold",
-    "font-family": obj.config.titleFontFamily,
+    "font-family": "Arial",
     "fill": obj.config.titleFontColor,
     "fill-opacity": "1"
   });
@@ -685,7 +717,7 @@ JustGage = function(config) {
   obj.txtValue.attr({
     "font-size": obj.params.valueFontSize,
     "font-weight": "bold",
-    "font-family": obj.config.valueFontFamily,
+    "font-family": "Arial",
     "fill": obj.config.valueFontColor,
     "fill-opacity": "0"
   });
@@ -709,9 +741,7 @@ JustGage = function(config) {
   }
 
   obj.txtMinimum = min;
-  if (obj.config.minTxt) {
-    obj.txtMinimum = obj.config.minTxt;
-  } else if (obj.config.humanFriendly) {
+  if (obj.config.humanFriendly) {
     obj.txtMinimum = humanFriendlyNumber(min, obj.config.humanFriendlyDecimal);
   } else if (obj.config.formatNumber) {
     obj.txtMinimum = formatNumber(min);
@@ -732,9 +762,7 @@ JustGage = function(config) {
     max = obj.config.min;
   }
   obj.txtMaximum = max;
-  if (obj.config.maxTxt) {
-    obj.txtMaximum = obj.config.maxTxt;
-  } else if (obj.config.humanFriendly) {
+  if (obj.config.humanFriendly) {
     obj.txtMaximum = humanFriendlyNumber(max, obj.config.humanFriendlyDecimal);
   } else if (obj.config.formatNumber) {
     obj.txtMaximum = formatNumber(max);
@@ -830,7 +858,7 @@ JustGage = function(config) {
       obj.config.donut,
       obj.config.reverse
     ]
-  }, obj.config.startAnimationTime, obj.config.startAnimationType, obj.config.onAnimationEnd);
+  }, obj.config.startAnimationTime, obj.config.startAnimationType);
 
   if (obj.config.pointer) {
     obj.needle.animate({
@@ -857,19 +885,10 @@ JustGage = function(config) {
 };
 
 /** Refresh gauge level */
-JustGage.prototype.refresh = function(val, max, config) {
+JustGage.prototype.refresh = function(val, max) {
 
   var obj = this;
   var displayVal, color, max = max || null;
-
-  if(config && (typeof config  === "object")) {
-    for(var key in config) {
-      if(!config.hasOwnProperty(key)) {
-        continue;
-      }
-      obj.config[key] = config[key];
-    }
-  }
 
   // set new max
   if (max !== null) {
@@ -877,9 +896,7 @@ JustGage.prototype.refresh = function(val, max, config) {
     // TODO: update customSectors
 
     obj.txtMaximum = obj.config.max;
-    if (obj.config.maxTxt) {
-      obj.txtMaximum = obj.config.maxTxt;
-    } else if (obj.config.humanFriendly) {
+    if (obj.config.humanFriendly) {
       obj.txtMaximum = humanFriendlyNumber(obj.config.max, obj.config.humanFriendlyDecimal);
     } else if (obj.config.formatNumber) {
       obj.txtMaximum = formatNumber(obj.config.max);
@@ -893,11 +910,7 @@ JustGage.prototype.refresh = function(val, max, config) {
       obj.txtMin.attr({
         "text": obj.txtMaximum
       });
-      obj.txtMax.attr({
-        "text": obj.txtMinimum
-      });
       setDy(obj.txtMin, obj.params.minFontSize, obj.params.minY);
-      setDy(obj.txtMax, obj.params.minFontSize, obj.params.minY);
     }
   }
 
@@ -949,7 +962,7 @@ JustGage.prototype.refresh = function(val, max, config) {
       obj.config.reverse
     ],
     "fill": color
-  }, obj.config.refreshAnimationTime, obj.config.refreshAnimationType, obj.config.onAnimationEnd);
+  }, obj.config.refreshAnimationTime, obj.config.refreshAnimationType);
 
   if (obj.config.pointer) {
     obj.needle.animate({
@@ -1085,7 +1098,7 @@ function getColor(val, pct, col, noGradient, custSec) {
 
   if (custSec.length > 0) {
     for (var i = 0; i < custSec.length; i++) {
-      if (val >= custSec[i].lo && val <= custSec[i].hi) {
+      if (val > custSec[i].lo && val <= custSec[i].hi) {
         return custSec[i].color;
       }
     }
